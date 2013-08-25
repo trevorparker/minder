@@ -11,27 +11,33 @@ use Time::HiRes qw(gettimeofday tv_interval usleep);
 daemonize();
 
 my $MINDER_ROOT = (($ENV{HOME}) && -e $ENV{HOME}) ? $ENV{HOME} : '';
+my ($MIN_SLEEP, $MAX_SLEEP) = (250000, 750000);
+
 my $procs;
-my $sleep = 250000;
+my $sleep = $MIN_SLEEP;
 my $time_previous = [gettimeofday];
 
 $procs = retrieve("$MINDER_ROOT/.minder_data") if (-e "$MINDER_ROOT/.minder_data");
 while (usleep $sleep) {
     my $time_now = [gettimeofday];
-    my $idle_seconds = get_idle();
-    if (tv_interval($time_previous, $time_now) - ($idle_seconds) > 0) {
+    my $seconds_slept = tv_interval($time_previous, $time_now);
+    my $seconds_idle = get_idle();
+    my $seconds_used = $seconds_slept - $seconds_idle;
+
+    if ($seconds_used > 0 && $seconds_used <= ($MAX_SLEEP / 1000000)) {
         my $frontmost = get_frontmost();
         my $datestamp = strftime "%Y%m%d", localtime($time_now->[0]);
         my $timestamp = strftime "%H:%M", localtime($time_now->[0]);
-        my $time_spent = tv_interval($time_previous, $time_now) - ($idle_seconds);
-        $procs->{$datestamp}->{$frontmost}->{total} += $time_spent;
-        $procs->{$datestamp}->{$frontmost}->{$timestamp} += $time_spent;
-        $sleep -= 10000 if ($sleep > 250000);
+
+        $procs->{$datestamp}->{$frontmost}->{total} += $seconds_used;
+        $procs->{$datestamp}->{$frontmost}->{$timestamp} += $seconds_used;
+        $sleep -= 10000 if ($sleep > $MIN_SLEEP);
         store \%$procs, "$MINDER_ROOT/.minder_data" if ((($sleep / 10000) % 6) == 0);
     }
-    elsif ($sleep < 1500000) {
+    elsif ($sleep < $MAX_SLEEP) {
         $sleep += 10000;
     }
+
     $time_previous = $time_now;
 }
 
